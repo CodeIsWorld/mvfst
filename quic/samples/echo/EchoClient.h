@@ -50,6 +50,7 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
         enableStreamGroups_(enableStreamGroups) {}
 
   void readAvailable(quic::StreamId streamId) noexcept override {
+    static std::string recevied_buffer;
     auto readData = quicClient_->read(streamId, 0);
     if (readData.hasError()) {
       LOG(ERROR) << "EchoClient failed read from stream=" << streamId
@@ -61,8 +62,13 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
     } else {
       recvOffsets_[streamId] += copy->length();
     }
-    LOG(INFO) << "Client received data=" << copy->moveToFbString().toStdString()
-              << " on stream=" << streamId;
+    recevied_buffer.append(copy->moveToFbString().toStdString());
+    bool eof = readData->second;
+    if (eof) {
+      LOG(INFO) << "Client received len:" << recevied_buffer.length()
+                << " data=" << recevied_buffer << " on stream=" << streamId;
+      recevied_buffer.clear();
+    }
   }
 
   void readAvailableWithGroup(
@@ -276,13 +282,43 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
       if (message.empty()) {
         continue;
       }
-      evb->runInEventBaseThreadAndWait([=] {
-        if (enableStreamGroups_) {
-          sendMessageInStreamGroup();
-        } else {
-          sendMessageInStream();
+
+      auto streamId = client->createBidirectionalStream().value();
+      std::string filename = "/home/zelos/Temp/" + message + ".jpg";
+      std::ifstream infile;
+      std::string buffer;
+      uint64_t size = 4096;
+      bool eof = false;
+      try {
+        infile.open(filename, std::ios::binary);
+        if (!infile.is_open()) {
+          return;
         }
-      });
+        while (!infile.eof()) {
+          buffer.resize(size);
+          infile.read(buffer.data(), size);
+          auto real_size = infile.gcount();
+          if (real_size != size) {
+            buffer.resize(real_size);
+            eof = true;
+          }
+          quicClient_->writeChain(
+              streamId, folly::IOBuf::copyBuffer(buffer), eof);
+        }
+        infile.close();
+      } catch (std::exception& e) {
+        std::cerr << "read file [" << filename << "] failed";
+        infile.close();
+        return;
+      }
+
+      // evb->runInEventBaseThreadAndWait([=] {
+      //   if (enableStreamGroups_) {
+      //     sendMessageInStreamGroup();
+      //   } else {
+      //     sendMessageInStream();
+      //   }
+      // });
     }
     LOG(INFO) << "EchoClient stopping client";
   }

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <quic/api/QuicSocket.h>
-
+#include <fstream>
 #include <folly/io/async/EventBase.h>
 #include <quic/common/BufUtil.h>
 
@@ -106,15 +106,27 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
     quic::Buf data = std::move(res.value().first);
     bool eof = res.value().second;
     auto dataLen = (data ? data->computeChainDataLength() : 0);
-    LOG(INFO) << "Got len=" << dataLen << " eof=" << uint32_t(eof)
-              << " total=" << input_[id].first.chainLength() + dataLen
-              << " data="
-              << ((data) ? data->clone()->moveToFbString().toStdString()
-                         : std::string());
+    LOG(INFO) << "Got len=" << dataLen << " eof=" << uint32_t(eof);
+    // LOG(INFO) << "Got len=" << dataLen << " eof=" << uint32_t(eof)
+    //           << " total=" << input_[id].first.chainLength() + dataLen
+    //           << " data="
+    //           << ((data) ? data->clone()->moveToFbString().toStdString()
+    //                      : std::string());
     input_[id].first.append(std::move(data));
     input_[id].second = eof;
     if (eof) {
-      echo(id, input_[id]);
+      // LOG(INFO) << input_[id].first.clone()->moveToFbString().toStdString();
+      std::string filename = "/home/zelos/Temp/1_copy.jpg";
+      std::ofstream outFile;
+      outFile.open(filename.c_str(), std::ios::trunc | std::ios::out);
+      if (!outFile.is_open()) {
+        LOG(ERROR) << "open [" << filename << "] failed!!!";
+        outFile.close();
+        return;
+      }
+      outFile << input_[id].first.move()->moveToFbString().toStdString();
+      outFile.close();
+      // echo(id, input_[id]);
     }
   }
 
@@ -205,7 +217,7 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
       // only echo when eof is present
       return;
     }
-    auto echoedData = folly::IOBuf::copyBuffer("echo ");
+    auto echoedData = folly::IOBuf::copyBuffer("");
     echoedData->prependChain(data.first.move());
     auto res = sock->writeChain(id, std::move(echoedData), true, nullptr);
     if (res.hasError()) {
