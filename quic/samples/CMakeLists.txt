@@ -18,17 +18,29 @@ foreach(header ${QUIC_API_HEADERS_TOINSTALL})
   install(FILES ${header} DESTINATION include/quic/samples/${header_dir})
 endforeach()
 
-add_executable(echo echo/main.cpp)
+add_subdirectory(echo)
+
+add_executable(main echo/main.cpp)
 
 target_compile_options(
-  echo
+  main
   PRIVATE
   ${_QUIC_COMMON_COMPILE_OPTIONS}
 )
 
+add_dependencies(
+  main
+  z_quic
+)
+
 target_link_libraries(
-  echo PUBLIC
-  mvfst_test_utils
+  main PUBLIC
+  z_quic
   ${GFLAGS_LIBRARIES}
   ${LIBGMOCK_LIBRARIES}
+)
+
+install(
+  TARGETS main
+  DESTINATION bin
 )

@@ -11,8 +11,8 @@
 #include <folly/init/Init.h>
 #include <folly/portability/GFlags.h>
 
-#include <quic/samples/echo/EchoClient.h>
-#include <quic/samples/echo/EchoServer.h>
+#include <quic/samples/echo/client.h>
+#include <quic/samples/echo/server.h>
 
 DEFINE_string(host, "::1", "Echo server hostname/IP");
 DEFINE_int32(port, 6666, "Echo server port");
@@ -41,8 +41,13 @@ int main(int argc, char* argv[]) {
   folly::Init init(&argc, &argv);
   fizz::CryptoUtils::init();
 
+  auto callback = [](uint64_t stream_id, const std::string& msg) {
+    std::cout << msg << std::endl;
+  };
+
   if (FLAGS_mode == "server") {
-    EchoServer server(
+    ZQuicServer server(
+        callback,
         FLAGS_host,
         FLAGS_port,
         FLAGS_use_datagrams,
@@ -52,10 +57,10 @@ int main(int argc, char* argv[]) {
     server.start();
   } else if (FLAGS_mode == "client") {
     if (FLAGS_host.empty() || FLAGS_port == 0) {
-      LOG(ERROR) << "EchoClient expected --host and --port";
+      LOG(ERROR) << "ZQuicClient expected --host and --port";
       return -2;
     }
-    EchoClient client(
+    ::quic::samples::ZQuicClient client(
         FLAGS_host,
         FLAGS_port,
         FLAGS_use_datagrams,

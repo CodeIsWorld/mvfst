@@ -21,9 +21,17 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
                     public quic::QuicSocket::DatagramCallback {
  public:
   using StreamData = std::pair<BufQueue, bool>;
+  using OnMessageCallback =
+      std::function<void(const uint64_t stream_id, const std::string& msg)>;
 
   explicit EchoHandler(folly::EventBase* evbIn, bool useDatagrams = false)
       : evb(evbIn), useDatagrams_(useDatagrams) {}
+
+  EchoHandler(
+      folly::EventBase* evbIn,
+      OnMessageCallback callback,
+      bool useDatagrams = false)
+      : evb(evbIn), useDatagrams_(useDatagrams), callback_(callback) {}
 
   void setQuicSocket(std::shared_ptr<quic::QuicSocket> socket) {
     sock = socket;
@@ -92,6 +100,11 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
                << error.message;
   }
 
+  bool SendMessage(quic::StreamId id, const std::string& message) {
+    auto data = StreamData(folly::IOBuf::copyBuffer(message), true);
+    return echo(id, data);
+  }
+
   void readAvailable(quic::StreamId id) noexcept override {
     LOG(INFO) << "read available for stream id=" << id;
 
@@ -116,16 +129,17 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
     input_[id].second = eof;
     if (eof) {
       // LOG(INFO) << input_[id].first.clone()->moveToFbString().toStdString();
-      std::string filename = "/home/zelos/Temp/1_copy.jpg";
-      std::ofstream outFile;
-      outFile.open(filename.c_str(), std::ios::trunc | std::ios::out);
-      if (!outFile.is_open()) {
-        LOG(ERROR) << "open [" << filename << "] failed!!!";
-        outFile.close();
-        return;
-      }
-      outFile << input_[id].first.move()->moveToFbString().toStdString();
-      outFile.close();
+      // std::string filename = "/home/zelos/Temp/1_copy.jpg";
+      // std::ofstream outFile;
+      // outFile.open(filename.c_str(), std::ios::trunc | std::ios::out);
+      // if (!outFile.is_open()) {
+      //   LOG(ERROR) << "open [" << filename << "] failed!!!";
+      //   outFile.close();
+      //   return;
+      // }
+      // outFile << input_[id].first.move()->moveToFbString().toStdString();
+      // outFile.close();
+      callback_(id, input_[id].first.move()->moveToFbString().toStdString());
       // echo(id, input_[id]);
     }
   }
@@ -212,20 +226,21 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
   std::shared_ptr<quic::QuicSocket> sock;
 
  private:
-  void echo(quic::StreamId id, StreamData& data) {
+  bool echo(quic::StreamId id, StreamData& data) {
     if (!data.second) {
       // only echo when eof is present
-      return;
+      return false;
     }
-    auto echoedData = folly::IOBuf::copyBuffer("");
-    echoedData->prependChain(data.first.move());
-    auto res = sock->writeChain(id, std::move(echoedData), true, nullptr);
+    auto res = sock->writeChain(id, data.first.move(), true, nullptr);
     if (res.hasError()) {
       LOG(ERROR) << "write error=" << toString(res.error());
+      return false;
     } else {
       // echo is done, clear EOF
       data.second = false;
+      return true;
     }
+    return true;
   }
 
   void echoDg(std::vector<quic::ReadDatagram> datagrams) {
@@ -244,6 +259,7 @@ class EchoHandler : public quic::QuicSocket::ConnectionSetupCallback,
   using PerStreamData = std::map<quic::StreamId, StreamData>;
   PerStreamData input_;
   std::map<quic::StreamGroupId, PerStreamData> streamGroupsData_;
+  OnMessageCallback callback_;
 };
 } // namespace samples
 } // namespace quic
